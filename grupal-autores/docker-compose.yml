@@ -1,0 +1,56 @@
+version: '3'
+services:
+  proxy:
+    image: traefik:v2.9.6
+    command: --api.insecure=true --providers.docker
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  mongodb-service:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./init.js:/docker-entrypoint-initdb.d/init.js:ro
+  postgres-sql:
+    image: postgres:alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: distribuida
+    ports:
+      - "5432:5432"
+    expose:
+      - 5432
+  authors-service:
+    image: jaimesalvador/authors-grupal-s
+    environment:
+      SERVER_PORT: 8082
+      DB_HOST: postgres-sql
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres-sql
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authors.rule=PathPrefix(`/app2`)"
+      - "traefik.http.middlewares.authors.stripprefix.prefixes=/app2"
+      - "traefik.http.routers.authors.middlewares=authors"
+      - "traefik.http.services.authors.loadbalancer.server.port=8082"
+  api-libros:
+    image: jaimesalvador/books-grupal-s
+    environment:
+      AUTHOR_PROXY: http://proxy/app2/authors
+      SERVER_PORT: 8081
+      spring.data.mongodb.host: mongodb-service
+    ports:
+      - "8081:8081"
+    depends_on:
+        - mongodb-service
+        - authors-service
+    labels:
+      - "traefik.http.routers.books.rule=PathPrefix(`/app1`)"
+      - "traefik.http.middlewares.books.stripprefix.prefixes=/app1"
+      - "traefik.http.routers.books.middlewares=books"
